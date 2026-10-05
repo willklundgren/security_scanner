@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import List, Optional, Sequence, Set
+from typing import List, Optional, Sequence, Set, Tuple
 
 from . import knowledge, report as report_mod, scanner
 from .knowledge import VULN_CLASSES
@@ -150,17 +150,24 @@ def cmd_list_classes() -> int:
     return 0
 
 
-def cmd_explain(key: str, provider: NewsProvider) -> int:
+def resolve_class(key: str) -> Tuple[Optional[knowledge.VulnClass], List[str]]:
+    """Exact key, else a unique substring match on key or title. Returns (class, candidates)."""
     vc = VULN_CLASSES.get(key)
+    if vc is not None:
+        return vc, [key]
+    matches = [k for k in VULN_CLASSES if key.lower() in k or key.lower() in VULN_CLASSES[k].title.lower()]
+    if len(matches) == 1:
+        return VULN_CLASSES[matches[0]], matches
+    return None, matches
+
+
+def cmd_explain(key: str, provider: NewsProvider) -> int:
+    vc, matches = resolve_class(key)
     if vc is None:
-        matches = [k for k in VULN_CLASSES if key.lower() in k or key.lower() in VULN_CLASSES[k].title.lower()]
-        if len(matches) == 1:
-            vc = VULN_CLASSES[matches[0]]
-        else:
-            print(f"Unknown class '{key}'."
-                  + (f" Did you mean: {', '.join(matches)}?" if matches else ""), file=sys.stderr)
-            print("Run --list-classes to see them all.", file=sys.stderr)
-            return 2
+        print(f"Unknown class '{key}'."
+              + (f" Did you mean: {', '.join(matches)}?" if matches else ""), file=sys.stderr)
+        print("Run --list-classes to see them all.", file=sys.stderr)
+        return 2
 
     import textwrap
     w = report_mod.term_width()

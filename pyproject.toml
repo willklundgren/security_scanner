@@ -24,9 +24,12 @@ dependencies = []
 # certifi is only a convenience for systems with no usable root certificate
 # store; secscan finds the OS bundle on its own where one exists.
 certs = ["certifi"]
+# The MCP server (python -m secscan.mcp_server) for agents. Needs Python 3.10+.
+mcp = ["mcp>=2,<3; python_version >= '3.10'"]
 
 [project.scripts]
 secscan = "secscan.cli:entrypoint"
+secscan-mcp = "secscan.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/"
