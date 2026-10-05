@@ -110,6 +110,60 @@ subprocess.run(cmd, shell=True)  # secscan:ignore AST-PY-SHELL
 A bare `# nosec` silences the line; naming rule ids silences only those.
 `// nosec` and `/* nosec */` work in C-family languages.
 
+## Use with agents (MCP)
+
+secscan ships an [MCP](https://modelcontextprotocol.io) server, so coding agents such as Claude
+Code can call it as a tool. It is an optional extra; the scanner itself stays dependency-free.
+
+```bash
+pip install -e '.[mcp]'            # Python 3.10+
+python3 -m secscan.mcp_server      # stdio; or the `secscan-mcp` command
+```
+
+| Tool | What it does |
+|---|---|
+| `scan_path` | Scans a path. Returns counts and a compact, paginated list; each finding carries a fingerprint |
+| `get_finding` | One finding in full, by fingerprint: scores, reasoning, fix, surrounding code, enclosing function |
+| `explain_class` | The four-axis briefing for a vulnerability class |
+| `record_verdict` | Records `confirmed` / `false_positive` / `needs_review` with evidence in `.secscan-triage.json` |
+| `triage_summary` | Every verdict recorded so far |
+
+The server runs locally over stdio and sends nothing anywhere itself. `explain_class` touches
+the network only with `offline: false`, and then sends only a CWE id. The agent calling the
+tools is another matter: code it reads goes to its model provider, so the "never your code"
+promise above covers secscan, not the agent you connect. `record_verdict` is the server's
+only write.
+
+### Multi-agent review
+
+The tools are shaped for one lead agent that hands findings to parallel verifiers:
+
+```
+/secscan-review src/
+  lead:       scan_path ─► batch findings by file ─► spawn verifiers in parallel
+  verifier×N: get_finding ─► trace callers / sanitisers ─► record_verdict   (read-only)
+  lead:       triage_summary ─► spot-check false positives ─► report, offer fixes
+```
+
+The two halves live in this repo: [`.claude/commands/secscan-review.md`](.claude/commands/secscan-review.md)
+is the lead and [`.claude/agents/secscan-verifier.md`](.claude/agents/secscan-verifier.md) the
+worker. [`.mcp.json`](.mcp.json) registers the server, so opening the repo in Claude Code is the
+whole setup. Point `command` in `.mcp.json` at a Python that has the `mcp` extra installed.
+
+Three design choices make the fan-out work:
+
+- **The fingerprint is the handle between agents.** Subagents share no conversation. A
+  fingerprint is a hash of rule, file and normalised code, so it is short enough to pass in a
+  brief and survives line drift.
+- **Lookups are stateless.** `get_finding` rescans the one file it needs, so a verifier never
+  depends on a scan another agent ran.
+- **Results go to a file, not to chat.** Verdicts land in `.secscan-triage.json`, which the
+  lead reads back, so nothing depends on how a subagent words its reply.
+
+Verifiers check what the static pass cannot: taint that crosses function boundaries,
+sanitisation upstream, and whether a config setting reaches production. They mark a finding
+`false_positive` only when they can cite the line that makes it safe.
+
 ## What it looks at
 
 **Languages.** Python, JavaScript/TypeScript, Java, Kotlin, Scala, Go, Ruby, PHP, C/C++,
@@ -218,11 +272,11 @@ your production code genuinely lives in a directory named `examples/`.
 python3 -m unittest discover -s tests
 ```
 
-66 tests covering rule/knowledge-base integrity, true positives across seven languages,
+85 tests covering rule/knowledge-base integrity, true positives across seven languages,
 false-positive resistance (parameterised SQL, argument-list subprocess,
 `usedforsecurity=False`, `yaml.safe_load`, vulnerabilities inside comments and strings),
 taint tracking, secret placeholder handling, scoring, all five output formats, baselines and
-CLI exit codes.
+CLI exit codes, and the MCP tools.
 
 ## Limits — read this part
 
@@ -275,8 +329,11 @@ secscan/
   news.py        CISA KEV + NVD enrichment, caching, offline fallback
   report.py      terminal / JSON / Markdown / HTML / SARIF renderers
   cli.py         argument parsing, filtering, baselines, exit codes
+  mcp_server.py  MCP tools for agents (optional extra)
 demo/vulnerable_shop/   deliberately insecure sample app
-tests/test_secscan.py   66 tests
+tests/                  85 tests
+.claude/                /secscan-review command + secscan-verifier subagent
+.mcp.json               registers the MCP server for Claude Code
 ```
 
 ## License
