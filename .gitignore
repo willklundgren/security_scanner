@@ -9,3 +9,5 @@ build/
 scan-report.html
 scan-report.md
 *.sarif
+.secscan-triage.json
+.claude/settings.local.json
